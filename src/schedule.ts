@@ -327,9 +327,14 @@ export interface Slot {
   names: string[];
 }
 
-function slotsOf(assignments: Assignment[]): Slot[] {
+/** A cell that names someone: a known soldier, or a short unmatched name (not a note like "3" or "כוח יזומה קבר יוסף"). */
+const isPerson = (a: ScheduleData['assignments'][number]) =>
+  a.people.length > 0 || (!/\d/.test(a.text) && tokens(a.text).length <= 2);
+
+function slotsOf(assignments: ScheduleData['assignments']): Slot[] {
   const byStart = new Map<number, Slot>();
   for (const a of assignments) {
+    if (!isPerson(a)) continue;
     const slot = byStart.get(a.start.getTime()) ?? { start: a.start, end: a.end, names: [] };
     if (a.end > slot.end) slot.end = a.end;
     if (!slot.names.includes(a.text)) slot.names.push(a.text);

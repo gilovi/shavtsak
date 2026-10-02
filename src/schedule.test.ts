@@ -321,6 +321,29 @@ describe('slotNeighbors', () => {
     });
   });
 
+  it("takes the previous slot from the previous date's sheet", () => {
+    const both = loadSchedule([DAY_1, DAY_2], TODAY);
+    const [first] = scheduleFor(key('רון כץ'), both, at(11, 9, 9)).filter((e) => e.sheet === '11.09' && e.mission === 'שג');
+    // 10.09's Friday 10:00 slot was taken over by 11.09, so the one before is 10.09's 06:00.
+    expect(slotNeighbors(first!, both).prev).toEqual({ start: at(11, 9, 6), end: at(11, 9, 10), names: ['עומר בר'] });
+  });
+
+  it('hides notes that are not people, but keeps unmatched short names', () => {
+    const noisy = sheetFrom('12.09', {
+      F2: 'כרמל חטיבה', G2: '14:00', H2: '18:00', I2: '22:00',
+      G3: 'משה פרץ', H3: 'משה פרץ', I3: 'כוח יזומה קבר יוסף',
+      G4: '3', H4: 'לידור', I4: 'עד 22 ואז 2 אנשים',
+    });
+    const data = loadSchedule([DAY_1, noisy], TODAY);
+    const mid = scheduleFor(key('משה פרץ'), data, at(12, 9, 0)).find((e) => e.start.getTime() === at(12, 9, 18).getTime())!;
+    const n = slotNeighbors(mid, data);
+    expect(n.prev!.names).toEqual(['משה פרץ']);
+    expect(n.with).toEqual(['לידור']);
+    // A slot with nobody but notes in it is skipped.
+    expect(n.next).toBeNull();
+    expect(currentOccupants(data, at(12, 9, 15)).map((o) => o.names)).toEqual([['משה פרץ']]);
+  });
+
   it('returns null when there is no earlier slot', () => {
     const n = slotNeighbors(entry('כרמל חטיבה', 14), data);
     expect([n.prev, n.with]).toEqual([null, ['דני לוי']]);
