@@ -234,10 +234,6 @@ button.entry-row {
   cursor: pointer;
 }
 
-.entry-row.static {
-  grid-template-columns: 7.5em 1fr;
-}
-
 .chevron {
   align-self: center;
   margin-inline-start: 10px;

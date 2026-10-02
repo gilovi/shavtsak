@@ -10,6 +10,14 @@ const SECTIONS = new Set(['נוכחים', 'יוצאים', 'חוזרים']);
 const WEEKDAYS: Record<string, number> = { ראשון: 0, שני: 1, שלישי: 2, רביעי: 3, חמישי: 4, שישי: 5, שבת: 6 };
 const DEFAULT_DAY_START = 14 * 60;
 const DAY = 24 * 60;
+const MAGEN = 'מגן שומרון';
+/** When a מגן שומרון crew rotates unless a label says otherwise. */
+const DEFAULT_ROTATION = 14 * 60;
+const ROTATION_GROUP = /^(יורדים|עולים)\s*:?$/;
+const ROTATION_TIMED = /^((יורד|עולה)\s*ב[-־]?\s*\d{1,2}(:\d{2})?\s*)+:?$/;
+const ROTATION_AT = /(יורד|עולה)\s*ב[-־]?\s*(\d{1,2})(?::(\d{2}))?/g;
+/** "X(יורד)" / "Y (עולה)" inside a cell. */
+const ROTATION_MARK = /([^(),]+?)\s*\(\s*(יורד|עולה)\s*\)/g;
 
 export interface Assignment {
   mission: string;
@@ -188,13 +196,98 @@ export function extractAssignments(sheet: Sheet, date: Date, dayStart = findDayS
       // Whole-day block: names below the title (and below any filled cells beside it, e.g. "7+1").
       const cols = [c];
       while (cell(r, cols.at(-1)! + 1) !== '' && !isMarker(cell(r, cols.at(-1)! + 1))) cols.push(cols.at(-1)! + 1);
-      for (let i = r + 1; ; i++) {
-        const texts = cols.map((k) => cell(i, k));
-        if (texts.every((t) => t === '') || texts.some(isMarker)) break;
-        for (const t of texts) if (t !== '') add(mission, dayStart, dayStart + DAY, t, true);
-      }
+      wholeDayBlock(r, cols);
     }),
   );
+
+  /**
+   * Names of a whole-day block. A rotation (seen in מגן שומרון) lists the outgoing crew (יורדים) beside the
+   * title columns, the incoming crew (עולים) to their right, and single soldiers under labels like
+   * "יורד ב 14 עולה ב 18:"; older sheets mark cells "X(יורד) Y(עולה)". Outgoing soldiers hold the post from
+   * the day start until the rotation, incoming ones from then on.
+   */
+  function wholeDayBlock(r: number, cols: number[]) {
+    const dayEnd = dayStart + DAY;
+    /** A clock hour from a label as minutes from midnight, at or after the day start. */
+    const clock = (h: string, m = '0') => {
+      const t = (Number(h) * 60 + Number(m)) % DAY;
+      return t >= dayStart ? t : t + DAY;
+    };
+    const mission = normalizeText(cell(r, cols[0]!));
+    const labels: { row: number; col: number; kind: 'out' | 'in' | 'timed'; downAt?: number; upAt?: number }[] = [];
+    for (let i = r + 1; mission === MAGEN && i <= r + 10; i++) {
+      for (let k = cols[0]! - 1; k <= cols.at(-1)! + 8; k++) {
+        const text = normalizeText(cell(i, k));
+        if (ROTATION_GROUP.test(text)) labels.push({ row: i, col: k, kind: text.startsWith('יורד') ? 'out' : 'in' });
+        else if (ROTATION_TIMED.test(text)) {
+          const label: (typeof labels)[number] = { row: i, col: k, kind: 'timed' };
+          for (const [, dir, h, m] of text.matchAll(ROTATION_AT)) {
+            if (dir === 'יורד') label.downAt ??= clock(h!, m);
+            else label.upAt ??= clock(h!, m);
+          }
+          labels.push(label);
+        }
+      }
+    }
+    const rotation =
+      labels.find((l) => l.downAt !== undefined)?.downAt ??
+      labels.find((l) => l.upAt !== undefined)?.upAt ??
+      clock(String(DEFAULT_ROTATION / 60));
+    const span = (text: string, from: number, to: number) => {
+      if (from < to) add(mission, from, to, text, true);
+    };
+    const isLabel = (i: number, k: number) => labels.some((l) => l.row === i && l.col === k);
+    const used = new Set<string>();
+    const take = (i: number, k: number) => {
+      used.add(`${i},${k}`);
+      return cell(i, k);
+    };
+
+    for (const l of labels) {
+      if (l.kind === 'timed') {
+        for (let i = l.row + 1; isName(cell(i, l.col)) && !isLabel(i, l.col); i++) {
+          const text = take(i, l.col);
+          if (l.downAt !== undefined && l.upAt !== undefined && l.upAt > l.downAt) {
+            span(text, dayStart, l.downAt);
+            span(text, l.upAt, dayEnd);
+          } else if (l.downAt !== undefined) span(text, dayStart, l.downAt);
+          else span(text, l.upAt!, dayEnd);
+        }
+        continue;
+      }
+      // A crew: the columns right of the label, up to the next label, down to an empty row.
+      const groupCols: number[] = [];
+      for (let k = l.col + 1; !isLabel(l.row, k) && (k === l.col + 1 || cell(l.row, k) !== '' || cell(l.row + 1, k) !== ''); k++)
+        groupCols.push(k);
+      for (let i = l.row; ; i++) {
+        const texts = groupCols.map((k) => cell(i, k));
+        if (texts.every((t) => t === '') || groupCols.some((k) => isLabel(i, k) || isMarker(cell(i, k)))) break;
+        for (const k of groupCols) {
+          if (cell(i, k) === '') continue;
+          const text = take(i, k);
+          if (l.kind === 'out') span(text, dayStart, rotation);
+          else span(text, rotation, dayEnd);
+        }
+      }
+    }
+
+    for (let i = r + 1; ; i++) {
+      const free = cols.filter((k) => !used.has(`${i},${k}`));
+      if (free.length === 0) continue;
+      const texts = free.map((k) => cell(i, k));
+      if (texts.every((t) => t === '') || free.some((k) => isLabel(i, k) || isMarker(cell(i, k)))) break;
+      for (const t of texts) {
+        if (t === '') continue;
+        const marked = [...t.matchAll(ROTATION_MARK)];
+        if (mission === MAGEN && marked.length) {
+          for (const [, name, dir] of marked) {
+            if (dir === 'יורד') span(name!.trim(), dayStart, rotation);
+            else span(name!.trim(), rotation, dayEnd);
+          }
+        } else add(mission, dayStart, dayEnd, t, true);
+      }
+    }
+  }
   return out;
 }
 
@@ -289,7 +382,7 @@ export function loadSchedule(sheets: Sheet[], today: Date): ScheduleData {
     // then, and slots it also covers are its to assign.
     const next = dated.find((d) => d.date.getTime() === addMinutes(date, DAY).getTime());
     return extractAssignments(sheet, date, dayStart)
-      .filter((a) => a.allDay || !next || a.start < next.start)
+      .filter((a) => !next || a.start < next.start)
       .map((a) => ({
         ...a,
         end: a.allDay && next && next.start < a.end ? next.start : a.end,
@@ -343,8 +436,14 @@ function slotsOf(assignments: ScheduleData['assignments']): Slot[] {
   return [...byStart.values()].sort((x, y) => x.start.getTime() - y.start.getTime());
 }
 
-/** Who is on the same mission in the slot before and after the entry's, and who shares its slot. */
-export function slotNeighbors(entry: Entry, data: ScheduleData): { prev: Slot | null; with: string[]; next: Slot | null } {
+/**
+ * Who is on the same mission in the slot before and after the one starting at `entry.start`, and who else
+ * shares that slot (everyone but `entry.text`).
+ */
+export function slotNeighbors(
+  entry: { mission: string; start: Date; text?: string },
+  data: ScheduleData,
+): { prev: Slot | null; with: string[]; next: Slot | null } {
   const slots = slotsOf(data.assignments.filter((a) => a.mission === entry.mission));
   const i = slots.findIndex((s) => s.start.getTime() === entry.start.getTime());
   return {

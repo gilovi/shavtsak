@@ -119,6 +119,10 @@ const updatedFmt = new Intl.DateTimeFormat('he-IL', {
 
 const normalizeSearch = (s: string) => s.replace(/[׳’`´]/g, "'").trim();
 const range = (start: Date, end: Date) => `${timeFmt.format(start)}–${timeFmt.format(end)}`;
+/** Whole-day duties span a day (at least 14:00 to a 10:00 next sheet); part of one, e.g. a מגן שומרון crew around a rotation, shows its times. */
+const isFullDay = (s: { start: Date; end: Date; allDay: boolean }) =>
+  s.allDay && s.end.getTime() - s.start.getTime() >= 20 * 60 * 60 * 1000;
+const when = (s: { start: Date; end: Date; allDay: boolean }) => (isFullDay(s) ? 'כל היום' : range(s.start, s.end));
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = '') {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -161,12 +165,12 @@ function renderPicker() {
   if (!namesEl.childElementCount) namesEl.append(el('li', 'empty', 'לא נמצא שם מתאים'));
 }
 
-/** A muted row above/below an expanded entry: the same mission's previous or next slot. */
-function renderNeighbor(slot: Slot | null, e: Entry, side: 'prev' | 'next') {
+/** A muted row above/below an expanded mission: the same mission's previous or next slot. */
+function renderNeighbor(slot: Slot | null, e: { start: Date; allDay: boolean }, side: 'prev' | 'next') {
   const row = el('div', `entry-row neighbor-row ${side}`);
   const time = el('span', 'time');
   if (slot) {
-    time.append(el('span', '', e.allDay ? 'כל היום' : range(slot.start, slot.end)));
+    time.append(el('span', '', when({ ...slot, allDay: e.allDay })));
     if (slot.start.toDateString() !== e.start.toDateString()) time.append(el('span', 'time-day', dayFmt.format(slot.start)));
   } else {
     time.textContent = '—';
@@ -176,6 +180,18 @@ function renderNeighbor(slot: Slot | null, e: Entry, side: 'prev' | 'next') {
   return row;
 }
 
+/** When a whole-day duty begins (unless it's already on) and ends. */
+function fullDayNote(s: { start: Date; end: Date }) {
+  const until = `עד ${shortDayFmt.format(s.end)} ${timeFmt.format(s.end)}`;
+  return s.start > new Date() ? `מ${shortDayFmt.format(s.start)} ${timeFmt.format(s.start)} ${until}` : until;
+}
+
+function toggle(id: string) {
+  if (expanded.has(id)) expanded.delete(id);
+  else expanded.add(id);
+  render();
+}
+
 function renderEntry(e: Entry, now: Date) {
   const id = `${e.mission}|${e.start.getTime()}`;
   const open = expanded.has(id);
@@ -183,16 +199,12 @@ function renderEntry(e: Entry, now: Date) {
   const row = el('button', 'entry-row');
   row.type = 'button';
   row.setAttribute('aria-expanded', String(open));
-  row.addEventListener('click', () => {
-    if (open) expanded.delete(id);
-    else expanded.add(id);
-    renderSchedule();
-  });
+  row.addEventListener('click', () => toggle(id));
 
-  row.append(el('span', 'time', e.allDay ? 'כל היום' : range(e.start, e.end)));
+  row.append(el('span', 'time', when(e)));
   const body = el('span', 'what');
   body.append(el('span', 'mission', e.mission));
-  if (e.allDay) body.append(el('span', 'note', `עד ${shortDayFmt.format(e.end)} ${timeFmt.format(e.end)}`));
+  if (isFullDay(e)) body.append(el('span', 'note', fullDayNote(e)));
   if (e.showText) body.append(el('span', 'note', `רשום: ${e.text}`));
   const neighbors = open ? slotNeighbors(e, data!) : null;
   if (neighbors?.with.length) body.append(el('span', 'note', `איתך: ${neighbors.with.join(', ')}`));
@@ -252,13 +264,24 @@ function renderNow() {
     section.append(el('h3', '', allDay ? 'משימות יום' : 'משמרות'));
     const list = el('ul', 'entries');
     for (const s of group) {
+      const id = `${s.mission}|${s.start.getTime()}`;
+      const open = expanded.has(id);
       const li = el('li', 'entry');
-      const row = el('div', 'entry-row static');
-      row.append(el('span', 'time', allDay ? 'כל היום' : range(s.start, s.end)));
+      const row = el('button', 'entry-row');
+      row.type = 'button';
+      row.setAttribute('aria-expanded', String(open));
+      row.addEventListener('click', () => toggle(id));
+      row.append(el('span', 'time', when(s)));
       const body = el('span', 'what');
       body.append(el('span', 'mission', s.mission), el('span', 'names-line', s.names.join(', ')));
-      row.append(body);
-      li.append(row);
+      if (isFullDay(s)) body.append(el('span', 'note', fullDayNote(s)));
+      const tags = el('span', 'tags');
+      tags.append(el('span', open ? 'chevron open' : 'chevron', '‹'));
+      row.append(body, tags);
+      if (open) {
+        const n = slotNeighbors(s, data);
+        li.append(renderNeighbor(n.prev, s, 'prev'), row, renderNeighbor(n.next, s, 'next'));
+      } else li.append(row);
       list.append(li);
     }
     section.append(list);
