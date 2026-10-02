@@ -3,3 +3,7 @@ dist/
 *.log
 .vite/
 coverage/
+
+# Snapshot of the real sheet (soldiers' names) — never commit. Recreate with: npm run fixtures
+src/__fixtures__/
+src/*.real.test.ts
