@@ -273,7 +273,8 @@ function render() {
   pickerEl.hidden = !ready || current !== 'picker';
   soldierEl.hidden = !ready || current !== 'soldier';
   nowEl.hidden = !ready || current !== 'now';
-  nowToggleEl.hidden = !ready || current === 'now';
+  nowToggleEl.hidden = !ready;
+  nowToggleEl.textContent = current === 'now' ? 'חזרה' : 'מי במשמרת עכשיו';
   if (!ready) return;
   if (current === 'picker') renderPicker();
   else if (current === 'soldier') renderSchedule();
@@ -286,15 +287,16 @@ $('change').addEventListener('click', () => {
   render();
   searchEl.focus();
 });
+// The same header button opens the "on duty now" screen and, as "חזרה", returns from it.
 nowToggleEl.addEventListener('click', () => {
-  backView = view;
-  view = 'now';
+  if (view === 'now') {
+    view = backView;
+  } else {
+    backView = view;
+    view = 'now';
+  }
   render();
   window.scrollTo({ top: 0 });
-});
-$('now-back').addEventListener('click', () => {
-  view = backView;
-  render();
 });
 refreshEl.addEventListener('click', () => void refresh());
 document.addEventListener('visibilitychange', () => {
