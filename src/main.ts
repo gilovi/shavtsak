@@ -119,12 +119,6 @@ const updatedFmt = new Intl.DateTimeFormat('he-IL', {
 
 const normalizeSearch = (s: string) => s.replace(/[׳’`´]/g, "'").trim();
 const range = (start: Date, end: Date) => `${timeFmt.format(start)}–${timeFmt.format(end)}`;
-/** "14:00–18:00", prefixed with the weekday when it isn't on `day`. */
-const slotRange = (slot: Slot, day: Date) =>
-  slot.start.toDateString() === day.toDateString()
-    ? range(slot.start, slot.end)
-    : `${shortDayFmt.format(slot.start)} ${range(slot.start, slot.end)}`;
-
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = '') {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -167,18 +161,19 @@ function renderPicker() {
   if (!namesEl.childElementCount) namesEl.append(el('li', 'empty', 'לא נמצא שם מתאים'));
 }
 
-function renderNeighbors(e: Entry) {
-  const { prev, with: mates, next } = slotNeighbors(e, data!);
-  const box = el('div', 'neighbors');
-  const line = (label: string, value: string) => {
-    const row = el('div', 'neighbor');
-    row.append(el('span', 'neighbor-label', label), el('span', '', value));
-    box.append(row);
-  };
-  line('לפני', prev ? `${slotRange(prev, e.start)} · ${prev.names.join(', ')}` : 'אין במידע');
-  if (mates.length) line('איתך', mates.join(', '));
-  line('אחרי', next ? `${slotRange(next, e.start)} · ${next.names.join(', ')}` : 'עדיין לא שובץ');
-  return box;
+/** A muted row above/below an expanded entry: the same mission's previous or next slot. */
+function renderNeighbor(slot: Slot | null, e: Entry, side: 'prev' | 'next') {
+  const row = el('div', `entry-row neighbor-row ${side}`);
+  const time = el('span', 'time');
+  if (slot) {
+    time.append(el('span', '', e.allDay ? 'כל היום' : range(slot.start, slot.end)));
+    if (slot.start.toDateString() !== e.start.toDateString()) time.append(el('span', 'time-day', dayFmt.format(slot.start)));
+  } else {
+    time.textContent = '—';
+  }
+  const names = slot ? slot.names.join(', ') : side === 'prev' ? 'אין משמרת קודמת בשבצק' : 'עוד לא שובץ';
+  row.append(time, el('span', slot ? 'neighbor-names' : 'neighbor-names none', names));
+  return row;
 }
 
 function renderEntry(e: Entry, now: Date) {
@@ -199,6 +194,8 @@ function renderEntry(e: Entry, now: Date) {
   body.append(el('span', 'mission', e.mission));
   if (e.allDay) body.append(el('span', 'note', `עד ${shortDayFmt.format(e.end)} ${timeFmt.format(e.end)}`));
   if (e.showText) body.append(el('span', 'note', `רשום: ${e.text}`));
+  const neighbors = open ? slotNeighbors(e, data!) : null;
+  if (neighbors?.with.length) body.append(el('span', 'note', `איתך: ${neighbors.with.join(', ')}`));
   row.append(body);
   const tags = el('span', 'tags');
   if (e.start <= now) tags.append(el('span', 'tag now', 'עכשיו'));
@@ -206,8 +203,8 @@ function renderEntry(e: Entry, now: Date) {
   tags.append(el('span', open ? 'chevron open' : 'chevron', '‹'));
   row.append(tags);
 
-  li.append(row);
-  if (open) li.append(renderNeighbors(e));
+  if (neighbors) li.append(renderNeighbor(neighbors.prev, e, 'prev'), row, renderNeighbor(neighbors.next, e, 'next'));
+  else li.append(row);
   return li;
 }
 

@@ -240,6 +240,7 @@ button.entry-row {
 
 .chevron {
   align-self: center;
+  margin-inline-start: 10px;
   color: var(--muted);
   font-size: 1.2rem;
   line-height: 1;
@@ -250,27 +251,37 @@ button.entry-row {
   transform: rotate(-90deg);
 }
 
-.neighbors {
-  display: grid;
-  gap: 6px;
-  padding: 0 14px 12px;
+.neighbor-row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  background: var(--accent-soft);
+  color: var(--muted);
   font-size: 0.85rem;
 }
 
-.neighbor {
-  display: grid;
-  grid-template-columns: 3.5em 1fr;
-  gap: 8px;
+.neighbor-row.prev {
+  border-bottom: 1px dashed var(--line);
 }
 
-.neighbor-label {
+.neighbor-row.next {
+  border-top: 1px dashed var(--line);
+}
+
+.neighbor-row .time {
+  font-weight: 500;
+}
+
+.time-day {
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.neighbor-names.none {
+  font-style: italic;
+}
+
+.entry.overlap .neighbor-row {
   color: var(--muted);
-  font-weight: 600;
-}
-
-.entry.overlap .neighbor-label {
-  color: inherit;
-  opacity: 0.8;
 }
 
 .names-line {
@@ -293,6 +304,8 @@ button.entry-row {
 }
 
 .time {
+  display: flex;
+  flex-direction: column;
   direction: ltr;
   text-align: right;
   font-variant-numeric: tabular-nums;
