@@ -3,7 +3,7 @@
 import { read, utils } from 'xlsx';
 import { writeFileSync, mkdirSync } from 'node:fs';
 
-const url = 'https://docs.google.com/spreadsheets/d/1u6LK8HKb9dB8tkMcwddxr1myVsFTQ-UvbAeRTrS5EFc/export?format=xlsx';
+const url = 'https://docs.google.com/spreadsheets/d/1wSaCSENqwvkcEdve9QO9KBpRzoiF8zRc4j_g1q-XFTs/export?format=xlsx';
 const wb = read(await (await fetch(url)).arrayBuffer());
 const sheets = wb.SheetNames.map((name) => {
   const grid = utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '', blankrows: true });

@@ -2,7 +2,7 @@
 
 ## Goal
 A soldier picks his name and sees all his upcoming missions, sorted by time, read live
-from the shared Google Sheet (`1u6LK8HKb9dB8tkMcwddxr1myVsFTQ-UvbAeRTrS5EFc`).
+from the shared Google Sheet (`1wSaCSENqwvkcEdve9QO9KBpRzoiF8zRc4j_g1q-XFTs`).
 
 ## Architecture
 - Static site (Vite + TypeScript), no backend. Each browser downloads the sheet's

@@ -1,6 +1,6 @@
 import { read, utils, type WorkBook } from 'xlsx';
 
-export const SHEET_ID = '1u6LK8HKb9dB8tkMcwddxr1myVsFTQ-UvbAeRTrS5EFc';
+export const SHEET_ID = '1wSaCSENqwvkcEdve9QO9KBpRzoiF8zRc4j_g1q-XFTs';
 export const EXPORT_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=xlsx`;
 
 /** A sheet as a grid of the cells' displayed text ('' for empty cells). */
