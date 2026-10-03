@@ -317,6 +317,95 @@ describe('מגן שומרון rotation', () => {
     expect(spans(marked)).toEqual(['אור 1 14:00-2 14:00', 'כץ 2 14:00-3 14:00']);
   });
 
+  // A crew of four (the first is the commander), and a soldier coming up at 22:00 without saying for whom.
+  const BEFORE = sheetFrom('01.10', {
+    ...d14,
+    F21: 'מגן שומרון', G21: '7+1', H21: 'עולה למגן ב22:',
+    F22: 'תום אור', G22: 'נעם גל', H22: 'רון כץ',
+    F23: 'אבי רז', G23: 'דני לוי',
+  });
+  // The next day's sheet puts him in the cell of the soldier he replaced.
+  const AFTER = sheetFrom('02.10', {
+    ...d14,
+    F21: 'מגן שומרון', G21: '7+1',
+    F22: 'תום אור', G22: 'נעם גל',
+    F23: 'אבי רז', G23: 'רון כץ',
+  });
+  const magen = (data: ReturnType<typeof loadSchedule>, sheet: string) =>
+    data.assignments
+      .filter((a) => a.mission === 'מגן שומרון' && a.sheet === sheet)
+      .map((a) => `${a.text} ${a.start.getDate()} ${hhmm(a.start)}-${a.end.getDate()} ${hhmm(a.end)}`);
+
+  it('keeps the whole crew on beside a newcomer until the next sheet shows whom he replaced', () => {
+    expect(magen(loadSchedule([BEFORE], TODAY), '01.10')).toEqual([
+      'רון כץ 1 22:00-2 14:00',
+      'תום אור 1 14:00-2 14:00',
+      'נעם גל 1 14:00-2 14:00',
+      'אבי רז 1 14:00-2 14:00',
+      'דני לוי 1 14:00-2 14:00',
+    ]);
+    expect(magen(loadSchedule([BEFORE, AFTER], TODAY), '01.10')).toEqual([
+      'רון כץ 1 22:00-2 14:00',
+      'תום אור 1 14:00-2 14:00',
+      'נעם גל 1 14:00-2 14:00',
+      'אבי רז 1 14:00-2 14:00',
+      'דני לוי 1 14:00-1 22:00',
+    ]);
+  });
+
+  it('carries the staying crew past the last sheet alongside a newcomer, in cell order', () => {
+    const last = sheetFrom('01.10', {
+      ...d14,
+      F21: 'מגן שומרון', G21: '7+1', H21: 'עולה למגן ב14',
+      F22: 'תום אור', G22: 'נעם גל', H22: 'רון כץ',
+      F23: 'אבי רז', G23: 'דני לוי', H23: 'יורד ב 14',
+      H24: 'נעם גל',
+    });
+    const data = loadSchedule([DAY_1, last], TODAY);
+    const [now] = currentOccupants(data, at(1, 10, 15)).filter((o) => o.mission === 'מגן שומרון');
+    expect(now!.names).toEqual(['תום אור', 'נעם גל', 'אבי רז', 'דני לוי']);
+    expect(slotNeighbors(now!, data).next).toEqual({
+      start: at(2, 10, 14),
+      end: at(3, 10, 14),
+      names: ['תום אור', 'אבי רז', 'דני לוי', 'רון כץ'],
+      commander: 'תום אור',
+    });
+  });
+
+  it('marks the first soldier of a crew as its commander', () => {
+    const commanders = (sheet: Sheet) =>
+      extractAssignments(sheet, date).filter((a) => a.commander).map((a) => `${a.text} ${hhmm(a.start)}`);
+    expect(commanders(BEFORE)).toEqual(['תום אור 14:00']);
+    // Both the outgoing and the incoming crew have one.
+    expect(commanders(ROTATION)).toEqual(['תום אור 10:00', 'רון כץ 14:00']);
+  });
+
+  it('gives the whole crew before and after a change as the neighbouring slots', () => {
+    // DAY_1 (10.09) only supplies the roster.
+    const data = loadSchedule([DAY_1, BEFORE, AFTER], TODAY);
+    const [now] = currentOccupants(data, at(2, 10, 15)).filter((o) => o.mission === 'מגן שומרון');
+    expect(now).toEqual({
+      mission: 'מגן שומרון',
+      allDay: true,
+      start: at(1, 10, 22),
+      end: at(3, 10, 14),
+      // The commander first, then the crew in the latest sheet's order.
+      names: ['תום אור', 'נעם גל', 'אבי רז', 'רון כץ'],
+      commander: 'תום אור',
+    });
+    const n = slotNeighbors(now!, data);
+    expect(n.prev).toEqual({
+      start: at(1, 10, 14),
+      end: at(1, 10, 22),
+      names: ['תום אור', 'נעם גל', 'אבי רז', 'דני לוי'],
+      commander: 'תום אור',
+    });
+    expect(n.next).toBeNull();
+    // From a soldier's own entry on either sheet.
+    const [entry] = scheduleFor(key('נעם גל'), data, at(1, 10, 0));
+    expect(slotNeighbors(entry!, data).with).toEqual(['תום אור', 'אבי רז', 'דני לוי']);
+  });
+
   it('leaves other whole-day blocks alone', () => {
     const hapak = extractAssignments(ROTATION, date).filter((a) => a.mission === 'חפק');
     expect(hapak.map((a) => [a.text, a.start, a.end])).toEqual([['משה כהן', at(1, 10, 10), at(2, 10, 10)]]);

@@ -123,6 +123,9 @@ const range = (start: Date, end: Date) => `${timeFmt.format(start)}–${timeFmt.
 const isFullDay = (s: { start: Date; end: Date; allDay: boolean }) =>
   s.allDay && s.end.getTime() - s.start.getTime() >= 20 * 60 * 60 * 1000;
 const when = (s: { start: Date; end: Date; allDay: boolean }) => (isFullDay(s) ? 'כל היום' : range(s.start, s.end));
+/** A crew's names, marking its commander. */
+const crewNames = (names: string[], commander?: string) =>
+  names.map((n) => (n === commander ? `${n} (מפקד)` : n)).join(', ');
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = '') {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -175,7 +178,7 @@ function renderNeighbor(slot: Slot | null, e: { start: Date; allDay: boolean }, 
   } else {
     time.textContent = '—';
   }
-  const names = slot ? slot.names.join(', ') : side === 'prev' ? 'אין משמרת קודמת בשבצק' : 'עוד לא שובץ';
+  const names = slot ? crewNames(slot.names, slot.commander) : side === 'prev' ? 'אין משמרת קודמת בשבצק' : 'עוד לא שובץ';
   row.append(time, el('span', slot ? 'neighbor-names' : 'neighbor-names none', names));
   return row;
 }
@@ -203,11 +206,12 @@ function renderEntry(e: Entry, now: Date) {
 
   row.append(el('span', 'time', when(e)));
   const body = el('span', 'what');
-  body.append(el('span', 'mission', e.mission));
+  body.append(el('span', 'mission', e.commander ? `${e.mission} · מפקד` : e.mission));
   if (isFullDay(e)) body.append(el('span', 'note', fullDayNote(e)));
   if (e.showText) body.append(el('span', 'note', `רשום: ${e.text}`));
-  const neighbors = open ? slotNeighbors(e, data!) : null;
-  if (neighbors?.with.length) body.append(el('span', 'note', `איתך: ${neighbors.with.join(', ')}`));
+  // A whole-day duty already under way: the crew as it is now.
+  const neighbors = open ? slotNeighbors(e.allDay && e.start < now ? { ...e, start: now } : e, data!) : null;
+  if (neighbors?.with.length) body.append(el('span', 'note', `איתך: ${crewNames(neighbors.with, neighbors.commander)}`));
   row.append(body);
   const tags = el('span', 'tags');
   if (e.start <= now) tags.append(el('span', 'tag now', 'עכשיו'));
@@ -273,7 +277,7 @@ function renderNow() {
       row.addEventListener('click', () => toggle(id));
       row.append(el('span', 'time', when(s)));
       const body = el('span', 'what');
-      body.append(el('span', 'mission', s.mission), el('span', 'names-line', s.names.join(', ')));
+      body.append(el('span', 'mission', s.mission), el('span', 'names-line', crewNames(s.names, s.commander)));
       if (isFullDay(s)) body.append(el('span', 'note', fullDayNote(s)));
       const tags = el('span', 'tags');
       tags.append(el('span', open ? 'chevron open' : 'chevron', '‹'));
