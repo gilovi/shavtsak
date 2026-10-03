@@ -191,6 +191,240 @@ describe('extractAssignments', () => {
   });
 });
 
+describe('מגן שומרון rotation', () => {
+  // A sheet starting at 10:00 with a rotation laid out like the real one: outgoing (יורדים) beside the title
+  // columns, incoming (עולים) to their right, and single soldiers under timed labels.
+  const ROTATION = sheetFrom('01.10', {
+    A2: 'שעה', B2: 'שג',
+    A3: '10:00', B3: 'דני לוי',
+    F21: 'מגן שומרון', G21: '7+1',
+    E22: 'יורדים:', F22: 'תום אור', G22: 'נעם גל', H22: 'עולים:', I22: 'רון כץ', J22: 'עומר בר', K22: 'יורד ב 14 עולה ב 18:',
+    F23: 'אבי רז', I23: 'גיל שחר', K23: 'משה פרץ',
+    G24: 'שי גולדשטיין', K24: 'עולה ב 14:',
+    K25: 'ליאור אדרי',
+    F27: 'חפק', F28: 'משה כהן',
+  });
+  const date = at(1, 10, 0);
+  const spans = (sheet: Sheet) =>
+    extractAssignments(sheet, date)
+      .filter((a) => a.mission === 'מגן שומרון')
+      .map((a) => `${a.text} ${a.start.getDate()} ${hhmm(a.start)}-${a.end.getDate()} ${hhmm(a.end)}${a.allDay ? '' : ' timed'}`);
+
+  it('gives outgoing soldiers the day until the rotation and incoming ones the rest', () => {
+    expect(spans(ROTATION).sort()).toEqual(
+      [
+        'תום אור 1 10:00-1 14:00',
+        'נעם גל 1 10:00-1 14:00',
+        'אבי רז 1 10:00-1 14:00',
+        'שי גולדשטיין 1 10:00-1 14:00',
+        'רון כץ 1 14:00-2 10:00',
+        'עומר בר 1 14:00-2 10:00',
+        'גיל שחר 1 14:00-2 10:00',
+        'משה פרץ 1 10:00-1 14:00',
+        'משה פרץ 1 18:00-2 10:00',
+        'ליאור אדרי 1 14:00-2 10:00',
+      ].sort(),
+    );
+  });
+
+  it('takes the rotation time from a timed label', () => {
+    const at16 = sheetFrom('01.10', {
+      A2: 'שעה', A3: '10:00',
+      F21: 'מגן שומרון',
+      E22: 'יורדים:', F22: 'תום אור', G22: 'עולים:', H22: 'רון כץ', I22: 'יורד ב 16:',
+      I23: 'נעם גל',
+    });
+    expect(spans(at16)).toEqual(['תום אור 1 10:00-1 16:00', 'רון כץ 1 16:00-2 10:00', 'נעם גל 1 10:00-1 16:00']);
+  });
+
+  it('splits cells marked (יורד) / (עולה) at the rotation', () => {
+    const marked = sheetFrom('01.10', {
+      A2: 'שעה', A3: '10:00',
+      F21: 'מגן שומרון', G21: '7+1',
+      F22: 'אור(יורד) כץ(עולה)', G22: 'נעם גל',
+    });
+    expect(spans(marked)).toEqual(['אור 1 10:00-1 14:00', 'כץ 1 14:00-2 10:00', 'נעם גל 1 10:00-2 10:00']);
+  });
+
+  it("drops a rotation that comes after the next date's sheet takes over", () => {
+    const late = sheetFrom('01.10', {
+      A2: 'שעה', A3: '14:00',
+      F21: 'מגן שומרון',
+      E22: 'יורדים:', F22: 'תום אור', G22: 'עולים:', H22: 'רון כץ', I22: 'יורד ב 12:',
+    });
+    const next = sheetFrom('02.10', { A2: 'שעה', A3: '10:00' });
+    const magen = loadSchedule([late, next], TODAY).assignments.filter((a) => a.mission === 'מגן שומרון');
+    expect(magen.map((a) => [a.text, a.start, a.end])).toEqual([['תום אור', at(1, 10, 14), at(2, 10, 10)]]);
+  });
+
+  // Most sheets start at 14:00, where a 14:00 rotation is the end of the sheet.
+  const d14 = { A2: 'שעה', A3: '14:00' };
+
+  it('starts the incoming crew at the end of a sheet that starts at the rotation hour', () => {
+    const at14 = sheetFrom('01.10', {
+      ...d14,
+      F21: 'מגן שומרון', G21: '7+1',
+      E22: 'יורדים:', F22: 'תום אור', G22: 'נעם גל', H22: 'עולים:', I22: 'רון כץ', J22: 'נעם גל',
+    });
+    // Listed both outgoing and incoming: one span.
+    expect(spans(at14)).toEqual(['תום אור 1 14:00-2 14:00', 'נעם גל 1 14:00-3 14:00', 'רון כץ 2 14:00-3 14:00']);
+    // Once the next day's sheet is out it lists its own crew.
+    const next = sheetFrom('02.10', { ...d14 });
+    const magen = loadSchedule([at14, next], TODAY).assignments.filter((a) => a.mission === 'מגן שומרון');
+    expect(magen.map((a) => `${a.text} ${a.end.getDate()}`)).toEqual(['תום אור 2', 'נעם גל 2']);
+  });
+
+  it('reads timed labels on the title row, stacked in a column, or with the name beside them', () => {
+    const labels = sheetFrom('01.10', {
+      ...d14,
+      F21: 'מגן שומרון', G21: '7+1', H21: 'עולים למגן 10', I21: 'עולים למגן בשעה 16',
+      F22: 'תום אור', G22: 'נעם גל', H22: 'רון כץ', I22: 'עומר בר', J22: 'עולה ב12:', K22: 'עולה במוצאי שבת:', L22: 'גיל שחר',
+      F23: 'אבי רז', G23: 'דני לוי', J23: 'משה פרץ',
+      J24: 'יורד ב12: ',
+      J25: 'אבי רז',
+    });
+    expect(spans(labels)).toEqual([
+      'רון כץ 2 10:00-2 14:00',
+      'עומר בר 1 16:00-2 14:00',
+      'משה פרץ 2 12:00-2 14:00',
+      'גיל שחר 1 20:00-2 14:00',
+      // His own label overrides the whole-day crew list.
+      'אבי רז 1 14:00-2 12:00',
+      'תום אור 1 14:00-2 14:00',
+      'נעם גל 1 14:00-2 14:00',
+      'דני לוי 1 14:00-2 14:00',
+    ]);
+  });
+
+  it('reads "יורד ב 14 עולה ב 18" as up from 18:00 until 14:00 when the sheet starts at 14:00', () => {
+    const both = sheetFrom('01.10', { ...d14, F21: 'מגן שומרון', E22: 'יורדים:', F22: 'תום אור', G22: 'עולים:', H22: 'רון כץ', I22: 'יורד ב 14 עולה ב 18:', I23: 'נעם גל' });
+    expect(spans(both)).toEqual(['תום אור 1 14:00-2 14:00', 'רון כץ 2 14:00-3 14:00', 'נעם גל 1 18:00-2 14:00']);
+  });
+
+  it('takes a יורדים list without a עולים one as the current crew', () => {
+    const crew = sheetFrom('01.10', {
+      ...d14,
+      F21: 'מגן שומרון', G21: '7+1',
+      E22: 'יורדים:', F22: 'תום אור', G22: 'נעם גל',
+      E24: 'עולים למגן 10', F24: 'יורד מהמגן ב 10',
+      E25: 'רון כץ', F25: 'נעם גל',
+    });
+    expect(spans(crew)).toEqual(['תום אור 1 14:00-2 14:00', 'רון כץ 2 10:00-2 14:00', 'נעם גל 1 14:00-2 10:00']);
+  });
+
+  it('splits "X(יורד) - Y (עולה)" cells', () => {
+    const marked = sheetFrom('01.10', { ...d14, F21: 'מגן שומרון', F22: 'אור(יורד) - כץ (עולה)' });
+    expect(spans(marked)).toEqual(['אור 1 14:00-2 14:00', 'כץ 2 14:00-3 14:00']);
+  });
+
+  // A crew of four (the first is the commander), and a soldier coming up at 22:00 without saying for whom.
+  const BEFORE = sheetFrom('01.10', {
+    ...d14,
+    F21: 'מגן שומרון', G21: '7+1', H21: 'עולה למגן ב22:',
+    F22: 'תום אור', G22: 'נעם גל', H22: 'רון כץ',
+    F23: 'אבי רז', G23: 'דני לוי',
+  });
+  // The next day's sheet puts him in the cell of the soldier he replaced.
+  const AFTER = sheetFrom('02.10', {
+    ...d14,
+    F21: 'מגן שומרון', G21: '7+1',
+    F22: 'תום אור', G22: 'נעם גל',
+    F23: 'אבי רז', G23: 'רון כץ',
+  });
+  const magen = (data: ReturnType<typeof loadSchedule>, sheet: string) =>
+    data.assignments
+      .filter((a) => a.mission === 'מגן שומרון' && a.sheet === sheet)
+      .map((a) => `${a.text} ${a.start.getDate()} ${hhmm(a.start)}-${a.end.getDate()} ${hhmm(a.end)}`);
+
+  it('keeps the whole crew on beside a newcomer until the next sheet shows whom he replaced', () => {
+    expect(magen(loadSchedule([BEFORE], TODAY), '01.10')).toEqual([
+      'רון כץ 1 22:00-2 14:00',
+      'תום אור 1 14:00-2 14:00',
+      'נעם גל 1 14:00-2 14:00',
+      'אבי רז 1 14:00-2 14:00',
+      'דני לוי 1 14:00-2 14:00',
+    ]);
+    expect(magen(loadSchedule([BEFORE, AFTER], TODAY), '01.10')).toEqual([
+      'רון כץ 1 22:00-2 14:00',
+      'תום אור 1 14:00-2 14:00',
+      'נעם גל 1 14:00-2 14:00',
+      'אבי רז 1 14:00-2 14:00',
+      'דני לוי 1 14:00-1 22:00',
+    ]);
+  });
+
+  it('carries the staying crew past the last sheet alongside a newcomer, in cell order', () => {
+    const last = sheetFrom('01.10', {
+      ...d14,
+      F21: 'מגן שומרון', G21: '7+1', H21: 'עולה למגן ב14',
+      F22: 'תום אור', G22: 'נעם גל', H22: 'רון כץ',
+      F23: 'אבי רז', G23: 'דני לוי', H23: 'יורד ב 14',
+      H24: 'נעם גל',
+    });
+    const data = loadSchedule([DAY_1, last], TODAY);
+    const [now] = currentOccupants(data, at(1, 10, 15)).filter((o) => o.mission === 'מגן שומרון');
+    expect(now!.names).toEqual(['תום אור', 'נעם גל', 'אבי רז', 'דני לוי']);
+    expect(slotNeighbors(now!, data).next).toEqual({
+      start: at(2, 10, 14),
+      end: at(3, 10, 14),
+      names: ['תום אור', 'אבי רז', 'דני לוי', 'רון כץ'],
+      commander: 'תום אור',
+    });
+  });
+
+  it('marks the first soldier of a crew as its commander', () => {
+    const commanders = (sheet: Sheet) =>
+      extractAssignments(sheet, date).filter((a) => a.commander).map((a) => `${a.text} ${hhmm(a.start)}`);
+    expect(commanders(BEFORE)).toEqual(['תום אור 14:00']);
+    // Both the outgoing and the incoming crew have one.
+    expect(commanders(ROTATION)).toEqual(['תום אור 10:00', 'רון כץ 14:00']);
+  });
+
+  it('gives the whole crew before and after a change as the neighbouring slots', () => {
+    // DAY_1 (10.09) only supplies the roster.
+    const data = loadSchedule([DAY_1, BEFORE, AFTER], TODAY);
+    const [now] = currentOccupants(data, at(2, 10, 15)).filter((o) => o.mission === 'מגן שומרון');
+    expect(now).toEqual({
+      mission: 'מגן שומרון',
+      allDay: true,
+      start: at(1, 10, 22),
+      end: at(3, 10, 14),
+      // The commander first, then the crew in the latest sheet's order.
+      names: ['תום אור', 'נעם גל', 'אבי רז', 'רון כץ'],
+      commander: 'תום אור',
+    });
+    const n = slotNeighbors(now!, data);
+    expect(n.prev).toEqual({
+      start: at(1, 10, 14),
+      end: at(1, 10, 22),
+      names: ['תום אור', 'נעם גל', 'אבי רז', 'דני לוי'],
+      commander: 'תום אור',
+    });
+    expect(n.next).toBeNull();
+    // From a soldier's own entry on either sheet.
+    const [entry] = scheduleFor(key('נעם גל'), data, at(1, 10, 0));
+    expect(slotNeighbors(entry!, data).with).toEqual(['תום אור', 'אבי רז', 'דני לוי']);
+  });
+
+  it('leaves other whole-day blocks alone', () => {
+    const hapak = extractAssignments(ROTATION, date).filter((a) => a.mission === 'חפק');
+    expect(hapak.map((a) => [a.text, a.start, a.end])).toEqual([['משה כהן', at(1, 10, 10), at(2, 10, 10)]]);
+  });
+
+  it('shows the outgoing and incoming crews as consecutive slots', () => {
+    const data = loadSchedule([DAY_1, ROTATION], TODAY);
+    expect(currentOccupants(data, at(1, 10, 12)).find((o) => o.mission === 'מגן שומרון')?.names.sort()).toEqual(
+      ['תום אור', 'נעם גל', 'אבי רז', 'שי גולדשטיין', 'משה פרץ'].sort(),
+    );
+    const n = slotNeighbors({ mission: 'מגן שומרון', start: at(1, 10, 14) }, data);
+    expect(n.prev?.start).toEqual(at(1, 10, 10));
+    expect(n.next?.start).toEqual(at(1, 10, 18));
+    expect(scheduleFor(key('רון כץ'), data, at(1, 10, 0)).map((e) => `${hhmm(e.start)} ${e.mission}`)).toEqual([
+      '14:00 מגן שומרון',
+    ]);
+  });
+});
+
 describe('buildRoster', () => {
   const roster = buildRoster([DAY_1]);
 
@@ -342,6 +576,15 @@ describe('slotNeighbors', () => {
     // A slot with nobody but notes in it is skipped.
     expect(n.next).toBeNull();
     expect(currentOccupants(data, at(12, 9, 15)).map((o) => o.names)).toEqual([['משה פרץ']]);
+  });
+
+  it('takes a mission and start time, e.g. from the on-duty screen', () => {
+    const [now] = currentOccupants(data, at(10, 9, 19));
+    expect(slotNeighbors(now!, data)).toEqual({
+      prev: { start: at(10, 9, 14), end: at(10, 9, 18), names: ['דני לוי'] },
+      with: ['משה פרץ'],
+      next: { start: at(10, 9, 22), end: at(11, 9, 2), names: ['רון כץ'] },
+    });
   });
 
   it('returns null when there is no earlier slot', () => {
