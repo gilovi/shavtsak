@@ -13,11 +13,15 @@ const DAY = 24 * 60;
 const MAGEN = 'מגן שומרון';
 /** When a מגן שומרון crew rotates unless a label says otherwise. */
 const DEFAULT_ROTATION = 14 * 60;
+/** "מוצאי שבת" in a rotation label, as a clock time. */
+const SATURDAY_NIGHT = 20 * 60;
 const ROTATION_GROUP = /^(יורדים|עולים)\s*:?$/;
-const ROTATION_TIMED = /^((יורד|עולה)\s*ב[-־]?\s*\d{1,2}(:\d{2})?\s*)+:?$/;
-const ROTATION_AT = /(יורד|עולה)\s*ב[-־]?\s*(\d{1,2})(?::(\d{2}))?/g;
-/** "X(יורד)" / "Y (עולה)" inside a cell. */
-const ROTATION_MARK = /([^(),]+?)\s*\(\s*(יורד|עולה)\s*\)/g;
+/** A rotation label that says when: "עולה ב14:", "עולים למגן בשעה 16", "יורד ב 14 עולה ב 18:". */
+const isTimedLabel = (text: string) => /^(יורד|עול)/.test(text) && (/\d/.test(text) || text.includes('מוצאי שבת'));
+const isRotationLabel = (text: string) => ROTATION_GROUP.test(text) || isTimedLabel(text);
+const ROTATION_AT = /(יורד|עול)\D*?(\d{1,2})(?::(\d{2}))?/g;
+/** "X(יורד)" / "- Y (עולה)" inside a cell. */
+const ROTATION_MARK = /([^(),-]+?)\s*\(\s*(יורד|עולה)\s*\)/g;
 
 export interface Assignment {
   mission: string;
@@ -195,63 +199,72 @@ export function extractAssignments(sheet: Sheet, date: Date, dayStart = findDayS
 
       // Whole-day block: names below the title (and below any filled cells beside it, e.g. "7+1").
       const cols = [c];
-      while (cell(r, cols.at(-1)! + 1) !== '' && !isMarker(cell(r, cols.at(-1)! + 1))) cols.push(cols.at(-1)! + 1);
+      const extends_ = (text: string) => text !== '' && !isMarker(text) && !isRotationLabel(normalizeText(text));
+      while (extends_(cell(r, cols.at(-1)! + 1))) cols.push(cols.at(-1)! + 1);
       wholeDayBlock(r, cols);
     }),
   );
 
   /**
-   * Names of a whole-day block. A rotation (seen in מגן שומרון) lists the outgoing crew (יורדים) beside the
-   * title columns, the incoming crew (עולים) to their right, and single soldiers under labels like
-   * "יורד ב 14 עולה ב 18:"; older sheets mark cells "X(יורד) Y(עולה)". Outgoing soldiers hold the post from
-   * the day start until the rotation, incoming ones from then on.
+   * Names of a whole-day block. A מגן שומרון crew rotates: the sheet may list the outgoing crew (יורדים) and
+   * the incoming one (עולים) side by side, single soldiers under labels like "עולה ב14:" or
+   * "יורד ב 14 עולה ב 18:" (below the label, or beside it), or cells like "X(יורד) - Y(עולה)". Label hours
+   * are the next such time after the day start, so on a sheet starting at 14:00 "14" is its end, and
+   * incoming soldiers then hold the post from the next day start (until that day's sheet lists its own crew).
+   * A יורדים list without a עולים one is just the current crew.
    */
   function wholeDayBlock(r: number, cols: number[]) {
-    const dayEnd = dayStart + DAY;
-    /** A clock hour from a label as minutes from midnight, at or after the day start. */
-    const clock = (h: string, m = '0') => {
-      const t = (Number(h) * 60 + Number(m)) % DAY;
-      return t >= dayStart ? t : t + DAY;
-    };
     const mission = normalizeText(cell(r, cols[0]!));
-    const labels: { row: number; col: number; kind: 'out' | 'in' | 'timed'; downAt?: number; upAt?: number }[] = [];
-    for (let i = r + 1; mission === MAGEN && i <= r + 10; i++) {
+    const dayEnd = dayStart + DAY;
+    const clock = (minutes: number) => (minutes % DAY > dayStart ? minutes % DAY : (minutes % DAY) + DAY);
+    type Label = { row: number; col: number; kind: 'out' | 'in' | 'timed'; downAt?: number; upAt?: number };
+    const labels: Label[] = [];
+    for (let i = r; mission === MAGEN && i <= r + 10; i++) {
       for (let k = cols[0]! - 1; k <= cols.at(-1)! + 8; k++) {
         const text = normalizeText(cell(i, k));
         if (ROTATION_GROUP.test(text)) labels.push({ row: i, col: k, kind: text.startsWith('יורד') ? 'out' : 'in' });
-        else if (ROTATION_TIMED.test(text)) {
-          const label: (typeof labels)[number] = { row: i, col: k, kind: 'timed' };
-          for (const [, dir, h, m] of text.matchAll(ROTATION_AT)) {
-            if (dir === 'יורד') label.downAt ??= clock(h!, m);
-            else label.upAt ??= clock(h!, m);
+        else if (isTimedLabel(text)) {
+          const label: Label = { row: i, col: k, kind: 'timed' };
+          const at = [...text.matchAll(ROTATION_AT)].map(([, dir, h, m]) => [dir, Number(h) * 60 + Number(m ?? 0)] as const);
+          if (at.length === 0) at.push([text.startsWith('יורד') ? 'יורד' : 'עול', SATURDAY_NIGHT]);
+          for (const [dir, t] of at) {
+            if (dir === 'יורד') label.downAt ??= clock(t);
+            else label.upAt ??= clock(t);
           }
           labels.push(label);
         }
       }
     }
+    const isLabel = (i: number, k: number) => labels.some((l) => l.row === i && l.col === k);
     const rotation =
       labels.find((l) => l.downAt !== undefined)?.downAt ??
       labels.find((l) => l.upAt !== undefined)?.upAt ??
-      clock(String(DEFAULT_ROTATION / 60));
-    const span = (text: string, from: number, to: number) => {
-      if (from < to) add(mission, from, to, text, true);
-    };
-    const isLabel = (i: number, k: number) => labels.some((l) => l.row === i && l.col === k);
+      clock(DEFAULT_ROTATION);
+    const hasIncomingCrew = labels.some((l) => l.kind === 'in');
+
+    /** 'crew' spans are the plain whole-day list, which a soldier's own timed label replaces. */
+    const spans: { text: string; from: number; to: number; kind: 'crew' | 'rotation' | 'timed' }[] = [];
     const used = new Set<string>();
     const take = (i: number, k: number) => {
       used.add(`${i},${k}`);
       return cell(i, k);
     };
+    const upFrom = (text: string, from: number, kind: 'rotation' | 'timed') =>
+      spans.push({ text, from, to: from < dayEnd ? dayEnd : from + DAY, kind });
 
     for (const l of labels) {
       if (l.kind === 'timed') {
-        for (let i = l.row + 1; isName(cell(i, l.col)) && !isLabel(i, l.col); i++) {
-          const text = take(i, l.col);
-          if (l.downAt !== undefined && l.upAt !== undefined && l.upAt > l.downAt) {
-            span(text, dayStart, l.downAt);
-            span(text, l.upAt, dayEnd);
-          } else if (l.downAt !== undefined) span(text, dayStart, l.downAt);
-          else span(text, l.upAt!, dayEnd);
+        const below = isName(cell(l.row + 1, l.col)) && !isLabel(l.row + 1, l.col);
+        const names: string[] = [];
+        if (below) for (let i = l.row + 1; isName(cell(i, l.col)) && !isLabel(i, l.col); i++) names.push(take(i, l.col));
+        else for (let k = l.col + 1; isName(cell(l.row, k)) && !isLabel(l.row, k); k++) names.push(take(l.row, k));
+        const { upAt, downAt } = l;
+        for (const text of names) {
+          if (upAt !== undefined && downAt !== undefined && upAt < downAt) spans.push({ text, from: upAt, to: downAt, kind: 'timed' });
+          else {
+            if (downAt !== undefined) spans.push({ text, from: dayStart, to: downAt, kind: 'timed' });
+            if (upAt !== undefined) upFrom(text, upAt, 'timed');
+          }
         }
         continue;
       }
@@ -260,13 +273,13 @@ export function extractAssignments(sheet: Sheet, date: Date, dayStart = findDayS
       for (let k = l.col + 1; !isLabel(l.row, k) && (k === l.col + 1 || cell(l.row, k) !== '' || cell(l.row + 1, k) !== ''); k++)
         groupCols.push(k);
       for (let i = l.row; ; i++) {
-        const texts = groupCols.map((k) => cell(i, k));
-        if (texts.every((t) => t === '') || groupCols.some((k) => isLabel(i, k) || isMarker(cell(i, k)))) break;
+        if (groupCols.every((k) => cell(i, k) === '') || groupCols.some((k) => isLabel(i, k) || isMarker(cell(i, k)))) break;
         for (const k of groupCols) {
           if (cell(i, k) === '') continue;
           const text = take(i, k);
-          if (l.kind === 'out') span(text, dayStart, rotation);
-          else span(text, rotation, dayEnd);
+          if (l.kind === 'in') upFrom(text, rotation, 'rotation');
+          else if (hasIncomingCrew) spans.push({ text, from: dayStart, to: rotation, kind: 'rotation' });
+          else spans.push({ text, from: dayStart, to: dayEnd, kind: 'crew' });
         }
       }
     }
@@ -278,14 +291,32 @@ export function extractAssignments(sheet: Sheet, date: Date, dayStart = findDayS
       if (texts.every((t) => t === '') || free.some((k) => isLabel(i, k) || isMarker(cell(i, k)))) break;
       for (const t of texts) {
         if (t === '') continue;
-        const marked = [...t.matchAll(ROTATION_MARK)];
-        if (mission === MAGEN && marked.length) {
-          for (const [, name, dir] of marked) {
-            if (dir === 'יורד') span(name!.trim(), dayStart, rotation);
-            else span(name!.trim(), rotation, dayEnd);
-          }
-        } else add(mission, dayStart, dayEnd, t, true);
+        const marked = mission === MAGEN ? [...t.matchAll(ROTATION_MARK)] : [];
+        if (marked.length === 0) spans.push({ text: t, from: dayStart, to: dayEnd, kind: 'crew' });
+        for (const [, name, dir] of marked) {
+          if (dir === 'יורד') spans.push({ text: name!.trim(), from: dayStart, to: rotation, kind: 'rotation' });
+          else upFrom(name!.trim(), rotation, 'rotation');
+        }
       }
+    }
+
+    // One span per soldier where the lists agree (e.g. listed both outgoing and incoming).
+    const timed = new Set(spans.filter((x) => x.kind === 'timed').map((x) => normalizeKey(x.text)));
+    const merged = new Map<string, { text: string; from: number; to: number }[]>();
+    for (const x of spans) {
+      const k = normalizeKey(x.text);
+      if (x.kind === 'crew' && timed.has(k)) continue;
+      merged.set(k, [...(merged.get(k) ?? []), { text: x.text, from: x.from, to: x.to }]);
+    }
+    for (const list of merged.values()) {
+      list.sort((a, b) => a.from - b.from);
+      const joined: typeof list = [];
+      for (const x of list) {
+        const last = joined.at(-1);
+        if (last && x.from <= last.to) last.to = Math.max(last.to, x.to);
+        else joined.push({ ...x, text: list[0]!.text });
+      }
+      for (const x of joined) if (x.from < x.to) add(mission, x.from, x.to, x.text, true);
     }
   }
   return out;

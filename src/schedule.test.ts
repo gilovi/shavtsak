@@ -257,6 +257,66 @@ describe('מגן שומרון rotation', () => {
     expect(magen.map((a) => [a.text, a.start, a.end])).toEqual([['תום אור', at(1, 10, 14), at(2, 10, 10)]]);
   });
 
+  // Most sheets start at 14:00, where a 14:00 rotation is the end of the sheet.
+  const d14 = { A2: 'שעה', A3: '14:00' };
+
+  it('starts the incoming crew at the end of a sheet that starts at the rotation hour', () => {
+    const at14 = sheetFrom('01.10', {
+      ...d14,
+      F21: 'מגן שומרון', G21: '7+1',
+      E22: 'יורדים:', F22: 'תום אור', G22: 'נעם גל', H22: 'עולים:', I22: 'רון כץ', J22: 'נעם גל',
+    });
+    // Listed both outgoing and incoming: one span.
+    expect(spans(at14)).toEqual(['תום אור 1 14:00-2 14:00', 'נעם גל 1 14:00-3 14:00', 'רון כץ 2 14:00-3 14:00']);
+    // Once the next day's sheet is out it lists its own crew.
+    const next = sheetFrom('02.10', { ...d14 });
+    const magen = loadSchedule([at14, next], TODAY).assignments.filter((a) => a.mission === 'מגן שומרון');
+    expect(magen.map((a) => `${a.text} ${a.end.getDate()}`)).toEqual(['תום אור 2', 'נעם גל 2']);
+  });
+
+  it('reads timed labels on the title row, stacked in a column, or with the name beside them', () => {
+    const labels = sheetFrom('01.10', {
+      ...d14,
+      F21: 'מגן שומרון', G21: '7+1', H21: 'עולים למגן 10', I21: 'עולים למגן בשעה 16',
+      F22: 'תום אור', G22: 'נעם גל', H22: 'רון כץ', I22: 'עומר בר', J22: 'עולה ב12:', K22: 'עולה במוצאי שבת:', L22: 'גיל שחר',
+      F23: 'אבי רז', G23: 'דני לוי', J23: 'משה פרץ',
+      J24: 'יורד ב12: ',
+      J25: 'אבי רז',
+    });
+    expect(spans(labels)).toEqual([
+      'רון כץ 2 10:00-2 14:00',
+      'עומר בר 1 16:00-2 14:00',
+      'משה פרץ 2 12:00-2 14:00',
+      'גיל שחר 1 20:00-2 14:00',
+      // His own label overrides the whole-day crew list.
+      'אבי רז 1 14:00-2 12:00',
+      'תום אור 1 14:00-2 14:00',
+      'נעם גל 1 14:00-2 14:00',
+      'דני לוי 1 14:00-2 14:00',
+    ]);
+  });
+
+  it('reads "יורד ב 14 עולה ב 18" as up from 18:00 until 14:00 when the sheet starts at 14:00', () => {
+    const both = sheetFrom('01.10', { ...d14, F21: 'מגן שומרון', E22: 'יורדים:', F22: 'תום אור', G22: 'עולים:', H22: 'רון כץ', I22: 'יורד ב 14 עולה ב 18:', I23: 'נעם גל' });
+    expect(spans(both)).toEqual(['תום אור 1 14:00-2 14:00', 'רון כץ 2 14:00-3 14:00', 'נעם גל 1 18:00-2 14:00']);
+  });
+
+  it('takes a יורדים list without a עולים one as the current crew', () => {
+    const crew = sheetFrom('01.10', {
+      ...d14,
+      F21: 'מגן שומרון', G21: '7+1',
+      E22: 'יורדים:', F22: 'תום אור', G22: 'נעם גל',
+      E24: 'עולים למגן 10', F24: 'יורד מהמגן ב 10',
+      E25: 'רון כץ', F25: 'נעם גל',
+    });
+    expect(spans(crew)).toEqual(['תום אור 1 14:00-2 14:00', 'רון כץ 2 10:00-2 14:00', 'נעם גל 1 14:00-2 10:00']);
+  });
+
+  it('splits "X(יורד) - Y (עולה)" cells', () => {
+    const marked = sheetFrom('01.10', { ...d14, F21: 'מגן שומרון', F22: 'אור(יורד) - כץ (עולה)' });
+    expect(spans(marked)).toEqual(['אור 1 14:00-2 14:00', 'כץ 2 14:00-3 14:00']);
+  });
+
   it('leaves other whole-day blocks alone', () => {
     const hapak = extractAssignments(ROTATION, date).filter((a) => a.mission === 'חפק');
     expect(hapak.map((a) => [a.text, a.start, a.end])).toEqual([['משה כהן', at(1, 10, 10), at(2, 10, 10)]]);
