@@ -9,6 +9,7 @@ import {
   normalizeKey,
   parseSheetDate,
   parseTime,
+  recentSheetNames,
   scheduleFor,
   slotNeighbors,
 } from './schedule';
@@ -94,6 +95,17 @@ describe('parseSheetDate', () => {
   it('picks the year closest to today', () => {
     expect(parseSheetDate('02.01', new Date(2026, 11, 30))).toEqual(new Date(2027, 0, 2));
     expect(parseSheetDate('30.12', new Date(2027, 0, 2))).toEqual(new Date(2026, 11, 30));
+  });
+});
+
+describe('recentSheetNames', () => {
+  it('keeps the date sheets from a week before today on, in workbook order', () => {
+    const names = ['מסגרת', '20.09', '24.09', '25.09', 'יזומה 29.09', '30.09', '2.10', '5.10'];
+    expect(recentSheetNames(names, new Date(2026, 9, 2, 15, 0))).toEqual(['25.09', '30.09', '2.10', '5.10']);
+  });
+
+  it('keeps every date sheet when given a longer window', () => {
+    expect(recentSheetNames(['10.09', '2.10'], new Date(2026, 9, 2), 60)).toEqual(['10.09', '2.10']);
   });
 });
 

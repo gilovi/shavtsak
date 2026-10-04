@@ -9,6 +9,18 @@ read live from the shavtsak Google Sheet. Overlapping missions are shown in red.
   on the refresh button. The last chosen soldier and last data are kept in `localStorage`.
 - The sheet must stay shared as "anyone with the link can view".
 
+## Sheet ID
+
+The sheet's ID is not committed. Locally, put it in a `.env` file at the repo root (git-ignored):
+
+```
+VITE_SHEET_ID=<the id from the sheet's URL: docs.google.com/spreadsheets/d/<id>/edit>
+```
+
+For deploys, it comes from the repository secret `SHEET_ID` (Settings → Secrets and variables →
+Actions). The build fails if it is missing. The ID still ends up in the published JavaScript,
+since each browser downloads the sheet itself.
+
 ## Commands
 
 ```bash
