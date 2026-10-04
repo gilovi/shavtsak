@@ -3,7 +3,10 @@
 import { read, utils } from 'xlsx';
 import { writeFileSync, mkdirSync } from 'node:fs';
 
-const url = 'https://docs.google.com/spreadsheets/d/1wSaCSENqwvkcEdve9QO9KBpRzoiF8zRc4j_g1q-XFTs/export?format=xlsx';
+// The sheet's ID comes from VITE_SHEET_ID in .env (see README); it isn't committed.
+const id = process.env.VITE_SHEET_ID;
+if (!id) throw new Error('VITE_SHEET_ID is not set: add it to .env (see README → Sheet ID).');
+const url = `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`;
 const wb = read(await (await fetch(url)).arrayBuffer());
 const sheets = wb.SheetNames.map((name) => {
   const grid = utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '', blankrows: true });

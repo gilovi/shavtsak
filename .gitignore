@@ -1,4 +1,7 @@
 node_modules/
+# Holds the sheet's ID (VITE_SHEET_ID) — never commit.
+.env
+.env.*
 dist/
 *.log
 .vite/

@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
-    "fixtures": "node scripts/make-fixtures.mjs"
+    "fixtures": "node --env-file-if-exists=.env scripts/make-fixtures.mjs"
   },
   "type": "module",
   "devDependencies": {
