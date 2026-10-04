@@ -99,6 +99,18 @@ export function parseSheetDate(name: string, today: Date): Date | null {
   return best;
 }
 
+/**
+ * The date sheets worth parsing: from `daysBack` days before today on (older ones only matter for who was on
+ * before, a week covers that), in workbook order.
+ */
+export function recentSheetNames(names: string[], today: Date, daysBack = 7): string[] {
+  const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysBack);
+  return names.filter((name) => {
+    const date = parseSheetDate(name, today);
+    return date !== null && date >= from;
+  });
+}
+
 const TIME = /^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*יום\s+(\S+))?$/;
 
 export function parseTime(text: string): { minutes: number; weekday?: number } | null {

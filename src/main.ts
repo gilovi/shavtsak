@@ -339,3 +339,8 @@ setInterval(() => {
 loadCache();
 render();
 void refresh();
+
+// Open instantly and offline next time (the deployed site only; it would cache stale files in dev).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch((err) => console.error(err));
+}
